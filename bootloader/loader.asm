@@ -1,34 +1,21 @@
-;/***************************************************
-;		版权声明
-;
-;	本操作系统名为：MINE
-;	该操作系统未经授权不得以盈利或非盈利为目的进行开发，
-;	只允许个人学习以及公开交流使用
-;
-;	代码最终所有权及解释权归田宇所有；
-;
-;	本模块作者：	田宇
-;	EMail:		345538255@qq.com
-;
-;
-;***************************************************/
-
 org	10000h
 	jmp	Label_Start
 
 %include	"fat12.inc"
 
+; 内核程序起始地址
 BaseOfKernelFile	equ	0x00
 OffsetOfKernelFile	equ	0x100000
 
-BaseTmpOfKernelAddr	equ	0x00
+; 内核程序临时转存空间
+BaseTmpOfKernelAddr		equ	0x00
 OffsetTmpOfKernelFile	equ	0x7E00
-
 MemoryStructBufferAddr	equ	0x7E00
 
+; 临时GDT表（保护模式）
 [SECTION gdt]
 
-LABEL_GDT:		dd	0,0
+LABEL_GDT:			dd	0,0
 LABEL_DESC_CODE32:	dd	0x0000FFFF,0x00CF9A00
 LABEL_DESC_DATA32:	dd	0x0000FFFF,0x00CF9200
 
@@ -39,6 +26,7 @@ GdtPtr	dw	GdtLen - 1
 SelectorCode32	equ	LABEL_DESC_CODE32 - LABEL_GDT
 SelectorData32	equ	LABEL_DESC_DATA32 - LABEL_GDT
 
+; IA-32e模式
 [SECTION gdt64]
 
 LABEL_GDT64:		dq	0x0000000000000000
@@ -47,16 +35,17 @@ LABEL_DESC_DATA64:	dq	0x0000920000000000
 
 GdtLen64	equ	$ - LABEL_GDT64
 GdtPtr64	dw	GdtLen64 - 1
-		dd	LABEL_GDT64
+			dd	LABEL_GDT64
 
 SelectorCode64	equ	LABEL_DESC_CODE64 - LABEL_GDT64
 SelectorData64	equ	LABEL_DESC_DATA64 - LABEL_GDT64
 
+; 16位宽的机器上
 [SECTION .s16]
 [BITS 16]
 
 Label_Start:
-
+	; 初始化
 	mov	ax,	cs
 	mov	ds,	ax
 	mov	es,	ax
@@ -64,11 +53,10 @@ Label_Start:
 	mov	ss,	ax
 	mov	sp,	0x7c00
 
-;=======	display on screen : Start Loader......
-
+	; 显示信息
 	mov	ax,	1301h
 	mov	bx,	000fh
-	mov	dx,	0200h		;row 2
+	mov	dx,	0200h
 	mov	cx,	12
 	push	ax
 	mov	ax,	ds
@@ -77,7 +65,7 @@ Label_Start:
 	mov	bp,	StartLoaderMessage
 	int	10h
 
-;=======	open address A20
+	; 开启地址A20功能
 	push	ax
 	in	al,	92h
 	or	al,	00000010b
@@ -101,17 +89,16 @@ Label_Start:
 
 	sti
 
-;=======	reset floppy
-
+	; 重置软盘
 	xor	ah,	ah
 	xor	dl,	dl
 	int	13h
 
-;=======	search kernel.bin
+	; 寻找kernel.bin文件 
 	mov	word	[SectorNo],	SectorNumOfRootDirStart
 
+; 从根目录开始搜索
 Lable_Search_In_Root_Dir_Begin:
-
 	cmp	word	[RootDirSizeForLoop],	0
 	jz	Label_No_LoaderBin
 	dec	word	[RootDirSizeForLoop]	
@@ -127,14 +114,12 @@ Lable_Search_In_Root_Dir_Begin:
 	mov	dx,	10h
 	
 Label_Search_For_LoaderBin:
-
 	cmp	dx,	0
 	jz	Label_Goto_Next_Sector_In_Root_Dir
 	dec	dx
 	mov	cx,	11
 
 Label_Cmp_FileName:
-
 	cmp	cx,	0
 	jz	Label_FileName_Found
 	dec	cx
@@ -144,29 +129,25 @@ Label_Cmp_FileName:
 	jmp	Label_Different
 
 Label_Go_On:
-	
 	inc	di
 	jmp	Label_Cmp_FileName
 
 Label_Different:
-
 	and	di,	0FFE0h
 	add	di,	20h
 	mov	si,	KernelFileName
 	jmp	Label_Search_For_LoaderBin
 
+; 进入下一个扇区根目录搜索
 Label_Goto_Next_Sector_In_Root_Dir:
-	
 	add	word	[SectorNo],	1
 	jmp	Lable_Search_In_Root_Dir_Begin
 	
-;=======	display on screen : ERROR:No KERNEL Found
-
+; 未找到 显示信息
 Label_No_LoaderBin:
-
 	mov	ax,	1301h
 	mov	bx,	008Ch
-	mov	dx,	0300h		;row 3
+	mov	dx,	0300h
 	mov	cx,	21
 	push	ax
 	mov	ax,	ds
@@ -176,8 +157,7 @@ Label_No_LoaderBin:
 	int	10h
 	jmp	$
 
-;=======	found loader.bin name in root director struct
-
+; 找到kernel.bin文件
 Label_FileName_Found:
 	mov	ax,	RootDirSectors
 	and	di,	0FFE0h
@@ -186,11 +166,12 @@ Label_FileName_Found:
 	push	cx
 	add	cx,	ax
 	add	cx,	SectorBalance
-	mov	eax,	BaseTmpOfKernelAddr	;BaseOfKernelFile
+	mov	eax,	BaseTmpOfKernelAddr	
 	mov	es,	eax
-	mov	bx,	OffsetTmpOfKernelFile	;OffsetOfKernelFile
+	mov	bx,	OffsetTmpOfKernelFile	
 	mov	ax,	cx
 
+; 将内核程序读取到临时转存空间中
 Label_Go_On_Loading_File:
 	push	ax
 	push	bx
@@ -205,7 +186,6 @@ Label_Go_On_Loading_File:
 	call	Func_ReadOneSector
 	pop	ax
 
-;;;;;;;;;;;;;;;;;;;;;;;	
 	push	cx
 	push	eax
 	push	fs
@@ -222,8 +202,7 @@ Label_Go_On_Loading_File:
 	mov	ds,	ax
 	mov	esi,	OffsetTmpOfKernelFile
 
-Label_Mov_Kernel:	;------------------
-	
+Label_Mov_Kernel:
 	mov	al,	byte	[ds:esi]
 	mov	byte	[fs:edi],	al
 
@@ -243,7 +222,6 @@ Label_Mov_Kernel:	;------------------
 	pop	fs
 	pop	eax
 	pop	cx
-;;;;;;;;;;;;;;;;;;;;;;;	
 
 	call	Func_GetFATEntry
 	cmp	ax,	0FFFh
@@ -255,27 +233,26 @@ Label_Mov_Kernel:	;------------------
 
 	jmp	Label_Go_On_Loading_File
 
+; 在第0行第39列显示'G'
 Label_File_Loaded:
-		
 	mov	ax, 0B800h
 	mov	gs, ax
-	mov	ah, 0Fh				; 0000: 黑底    1111: 白字
+	mov	ah, 0Fh
 	mov	al, 'G'
-	mov	[gs:((80 * 0 + 39) * 2)], ax	; 屏幕第 0 行, 第 39 列。
+	mov	[gs:((80 * 0 + 39) * 2)], ax
 
+; 关闭软驱马达
 KillMotor:
-	
 	push	dx
 	mov	dx,	03F2h
 	mov	al,	0	
 	out	dx,	al
 	pop	dx
 
-;=======	get memory address size type
-
+	; 获取内存地址空间信息
 	mov	ax,	1301h
 	mov	bx,	000Fh
-	mov	dx,	0400h		;row 4
+	mov	dx,	0400h
 	mov	cx,	24
 	push	ax
 	mov	ax,	ds
@@ -290,7 +267,6 @@ KillMotor:
 	mov	di,	MemoryStructBufferAddr	
 
 Label_Get_Mem_Struct:
-
 	mov	eax,	0x0E820
 	mov	ecx,	20
 	mov	edx,	0x534D4150
@@ -303,10 +279,9 @@ Label_Get_Mem_Struct:
 	jmp	Label_Get_Mem_OK
 
 Label_Get_Mem_Fail:
-
 	mov	ax,	1301h
 	mov	bx,	008Ch
-	mov	dx,	0500h		;row 5
+	mov	dx,	0500h
 	mov	cx,	23
 	push	ax
 	mov	ax,	ds
@@ -317,10 +292,9 @@ Label_Get_Mem_Fail:
 	jmp	$
 
 Label_Get_Mem_OK:
-	
 	mov	ax,	1301h
 	mov	bx,	000Fh
-	mov	dx,	0600h		;row 6
+	mov	dx,	0600h
 	mov	cx,	29
 	push	ax
 	mov	ax,	ds
@@ -329,11 +303,10 @@ Label_Get_Mem_OK:
 	mov	bp,	GetMemStructOKMessage
 	int	10h	
 
-;=======	get SVGA information
-
+	; 获取SVGA信息
 	mov	ax,	1301h
 	mov	bx,	000Fh
-	mov	dx,	0800h		;row 8
+	mov	dx,	0800h
 	mov	cx,	23
 	push	ax
 	mov	ax,	ds
@@ -353,11 +326,10 @@ Label_Get_Mem_OK:
 
 	jz	.KO
 	
-;=======	Fail
-
+	; 获取失败
 	mov	ax,	1301h
 	mov	bx,	008Ch
-	mov	dx,	0900h		;row 9
+	mov	dx,	0900h
 	mov	cx,	23
 	push	ax
 	mov	ax,	ds
@@ -368,11 +340,11 @@ Label_Get_Mem_OK:
 
 	jmp	$
 
+	; 获取成功
 .KO:
-
 	mov	ax,	1301h
 	mov	bx,	000Fh
-	mov	dx,	0A00h		;row 10
+	mov	dx,	0A00h
 	mov	cx,	29
 	push	ax
 	mov	ax,	ds
@@ -381,11 +353,10 @@ Label_Get_Mem_OK:
 	mov	bp,	GetSVGAVBEInfoOKMessage
 	int	10h
 
-;=======	Get SVGA Mode Info
-
+	; 获取SVGA模式信息
 	mov	ax,	1301h
 	mov	bx,	000Fh
-	mov	dx,	0C00h		;row 12
+	mov	dx,	0C00h
 	mov	cx,	24
 	push	ax
 	mov	ax,	ds
@@ -393,7 +364,6 @@ Label_Get_Mem_OK:
 	pop	ax
 	mov	bp,	StartGetSVGAModeInfoMessage
 	int	10h
-
 
 	mov	ax,	0x00
 	mov	es,	ax
@@ -403,11 +373,9 @@ Label_Get_Mem_OK:
 	mov	edi,	0x8200
 
 Label_SVGA_Mode_Info_Get:
-
 	mov	cx,	word	[es:esi]
 
-;=======	display SVGA mode information
-
+	; 显示SVGA模式信息
 	push	ax
 	
 	mov	ax,	00h
@@ -420,8 +388,6 @@ Label_SVGA_Mode_Info_Get:
 	
 	pop	ax
 
-;=======
-	
 	cmp	cx,	0FFFFh
 	jz	Label_SVGA_Mode_Info_Finish
 
@@ -438,10 +404,9 @@ Label_SVGA_Mode_Info_Get:
 	jmp	Label_SVGA_Mode_Info_Get
 		
 Label_SVGA_Mode_Info_FAIL:
-
 	mov	ax,	1301h
 	mov	bx,	008Ch
-	mov	dx,	0D00h		;row 13
+	mov	dx,	0D00h
 	mov	cx,	24
 	push	ax
 	mov	ax,	ds
@@ -451,14 +416,12 @@ Label_SVGA_Mode_Info_FAIL:
 	int	10h
 
 Label_SET_SVGA_Mode_VESA_VBE_FAIL:
-
 	jmp	$
 
 Label_SVGA_Mode_Info_Finish:
-
 	mov	ax,	1301h
 	mov	bx,	000Fh
-	mov	dx,	0E00h		;row 14
+	mov	dx,	0E00h
 	mov	cx,	30
 	push	ax
 	mov	ax,	ds
@@ -467,18 +430,16 @@ Label_SVGA_Mode_Info_Finish:
 	mov	bp,	GetSVGAModeInfoOKMessage
 	int	10h
 
-;=======	set the SVGA mode(VESA VBE)
-
+	; 设置SVGA芯片显示模式
 	mov	ax,	4F02h
-	mov	bx,	4180h	;========================mode : 0x180 or 0x143
+	mov	bx,	4180h
 	int 	10h
 
 	cmp	ax,	004Fh
 	jnz	Label_SET_SVGA_Mode_VESA_VBE_FAIL
 
-;=======	init IDT GDT goto protect mode 
-
-	cli			;======close interrupt
+	; 初始化，在所有描述符前加入0x66
+	cli	
 
 	db	0x66
 	lgdt	[GdtPtr]
@@ -492,13 +453,11 @@ Label_SVGA_Mode_Info_Finish:
 
 	jmp	dword SelectorCode32:GO_TO_TMP_Protect
 
+; 执行IA-32e模式的切换程序
 [SECTION .s32]
 [BITS 32]
 
 GO_TO_TMP_Protect:
-
-;=======	go to tmp long mode
-
 	mov	ax,	0x10
 	mov	ds,	ax
 	mov	es,	ax
@@ -511,27 +470,18 @@ GO_TO_TMP_Protect:
 
 	jz	no_support
 
-;=======	init temporary page table 0x90000
-
+	; 初始化内存页
 	mov	dword	[0x90000],	0x91007
 	mov	dword	[0x90800],	0x91007		
-
 	mov	dword	[0x91000],	0x92007
-
 	mov	dword	[0x92000],	0x000083
-
 	mov	dword	[0x92008],	0x200083
-
 	mov	dword	[0x92010],	0x400083
-
 	mov	dword	[0x92018],	0x600083
-
 	mov	dword	[0x92020],	0x800083
-
 	mov	dword	[0x92028],	0xa00083
 
-;=======	load GDTR
-
+	; 加载全局GDTR表
 	db	0x66
 	lgdt	[GdtPtr64]
 	mov	ax,	0x10
@@ -543,27 +493,23 @@ GO_TO_TMP_Protect:
 
 	mov	esp,	7E00h
 
-;=======	open PAE
-
+	; 开启PAE功能
 	mov	eax,	cr4
 	bts	eax,	5
 	mov	cr4,	eax
 
-;=======	load	cr3
-
+	; CR3控制寄存器设置
 	mov	eax,	0x90000
 	mov	cr3,	eax
 
-;=======	enable long-mode
-
-	mov	ecx,	0C0000080h		;IA32_EFER
+	; 开启长模式
+	mov	ecx,	0C0000080h
 	rdmsr
 
 	bts	eax,	8
 	wrmsr
 
-;=======	open PE and paging
-
+	; 置位PE标志位
 	mov	eax,	cr0
 	bts	eax,	0
 	bts	eax,	31
@@ -571,10 +517,8 @@ GO_TO_TMP_Protect:
 
 	jmp	SelectorCode64:OffsetOfKernelFile
 
-;=======	test support long mode or not
-
+; 测试即使是否支持长模式
 support_long_mode:
-
 	mov	eax,	0x80000000
 	cpuid
 	cmp	eax,	0x80000001
@@ -584,23 +528,19 @@ support_long_mode:
 	cpuid
 	bt	edx,	29
 	setc	al
+
 support_long_mode_done:
-	
 	movzx	eax,	al
 	ret
-
-;=======	no support
 
 no_support:
 	jmp	$
 
-;=======	read one sector from floppy
-
+; 从软盘读取一个扇区数据
 [SECTION .s16lib]
 [BITS 16]
 
 Func_ReadOneSector:
-	
 	push	bp
 	mov	bp,	sp
 	sub	esp,	2
@@ -616,6 +556,7 @@ Func_ReadOneSector:
 	and	dh,	1
 	pop	bx
 	mov	dl,	[BS_DrvNum]
+
 Label_Go_On_Reading:
 	mov	ah,	2
 	mov	al,	byte	[bp - 2]
@@ -625,10 +566,8 @@ Label_Go_On_Reading:
 	pop	bp
 	ret
 
-;=======	get FAT Entry
-
+; 根据FAT表索引下一个FAT数据
 Func_GetFATEntry:
-
 	push	es
 	push	bx
 	push	ax
@@ -645,7 +584,6 @@ Func_GetFATEntry:
 	mov	byte	[Odd],	1
 
 Label_Even:
-
 	xor	dx,	dx
 	mov	bx,	[BPB_BytesPerSec]
 	div	bx
@@ -668,10 +606,8 @@ Label_Even_2:
 	pop	es
 	ret
 
-;=======	display num in al
-
+; 显示16进制数
 Label_DispAL:
-
 	push	ecx
 	push	edx
 	push	edi
@@ -681,19 +617,19 @@ Label_DispAL:
 	mov	dl,	al
 	shr	al,	4
 	mov	ecx,	2
-.begin:
 
+.begin:
 	and	al,	0Fh
 	cmp	al,	9
 	ja	.1
 	add	al,	'0'
 	jmp	.2
-.1:
 
+.1:
 	sub	al,	0Ah
 	add	al,	'A'
-.2:
 
+.2:
 	mov	[gs:edi],	ax
 	add	edi,	2
 	
@@ -708,9 +644,7 @@ Label_DispAL:
 	
 	ret
 
-
-;=======	tmp IDT
-
+; 为IDT开辟空间
 IDT:
 	times	0x50	dq	0
 IDT_END:
@@ -719,8 +653,7 @@ IDT_POINTER:
 		dw	IDT_END - IDT - 1
 		dd	IDT
 
-;=======	tmp variable
-
+; 临时变量
 RootDirSizeForLoop	dw	RootDirSectors
 SectorNo		dw	0
 Odd			db	0
@@ -728,19 +661,18 @@ OffsetOfKernelFileCount	dd	OffsetOfKernelFile
 
 DisplayPosition		dd	0
 
-;=======	display messages
-
+; 显示信息
 StartLoaderMessage:	db	"Start Loader"
 NoLoaderMessage:	db	"ERROR:No KERNEL Found"
 KernelFileName:		db	"KERNEL  BIN",0
 StartGetMemStructMessage:	db	"Start Get Memory Struct."
-GetMemStructErrMessage:	db	"Get Memory Struct ERROR"
-GetMemStructOKMessage:	db	"Get Memory Struct SUCCESSFUL!"
+GetMemStructErrMessage:  	db	"Get Memory Struct ERROR"
+GetMemStructOKMessage:   	db	"Get Memory Struct SUCCESSFUL!"
 
 StartGetSVGAVBEInfoMessage:	db	"Start Get SVGA VBE Info"
 GetSVGAVBEInfoErrMessage:	db	"Get SVGA VBE Info ERROR"
 GetSVGAVBEInfoOKMessage:	db	"Get SVGA VBE Info SUCCESSFUL!"
 
 StartGetSVGAModeInfoMessage:	db	"Start Get SVGA Mode Info"
-GetSVGAModeInfoErrMessage:	db	"Get SVGA Mode Info ERROR"
-GetSVGAModeInfoOKMessage:	db	"Get SVGA Mode Info SUCCESSFUL!"
+GetSVGAModeInfoErrMessage:	    db	"Get SVGA Mode Info ERROR"
+GetSVGAModeInfoOKMessage:   	db	"Get SVGA Mode Info SUCCESSFUL!"
